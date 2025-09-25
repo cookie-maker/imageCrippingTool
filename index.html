@@ -18,10 +18,11 @@
 
         #canvasContainer {
             border: 2px solid #333;
-            width: 500px;
-            /* トリミングする正方形のサイズ */
-            height: 500px;
-            /* トリミングする正方形のサイズ */
+            width: min(500px, calc(100vw - 40px));
+            height: min(500px, calc(100vw - 40px));
+            max-width: 500px;
+            max-height: 500px;
+            aspect-ratio: 1;
             position: relative;
             margin-bottom: 15px;
             background-color: #000;
@@ -93,10 +94,37 @@
         const ctx = canvas.getContext('2d');
         const canvasContainer = document.getElementById('canvasContainer');
 
-        const CANVAS_WIDTH = 500;
-        const CANVAS_HEIGHT = 500;
-        canvas.width = CANVAS_WIDTH;
-        canvas.height = CANVAS_HEIGHT;
+        const SAVE_SIZE = 500; // 保存時の固定サイズ
+        let displaySize = SAVE_SIZE; // 表示用のサイズ（動的に変更）
+        
+        // 表示サイズを計算する関数
+        function calculateDisplaySize() {
+            const containerStyle = window.getComputedStyle(canvasContainer);
+            const containerWidth = parseFloat(containerStyle.width);
+            displaySize = Math.floor(containerWidth);
+            canvas.width = displaySize;
+            canvas.height = displaySize;
+        }
+        
+        // 初期サイズを設定
+        calculateDisplaySize();
+
+        // ウィンドウリサイズ時の処理
+        window.addEventListener('resize', () => {
+            const oldDisplaySize = displaySize;
+            calculateDisplaySize();
+            
+            // 画像が読み込まれている場合は、位置とスケールを調整
+            if (img) {
+                const sizeRatio = displaySize / oldDisplaySize;
+                imageState.x *= sizeRatio;
+                imageState.y *= sizeRatio;
+                imageState.scale *= sizeRatio;
+                imageState.minScale *= sizeRatio;
+                adjustImagePosition();
+                draw();
+            }
+        });
 
         let img = null;
         let imageState = {
@@ -142,13 +170,13 @@
         function initializeImageState() {
             if (!img) return;
 
-            const scaleToFillWidth = CANVAS_WIDTH / img.width;
-            const scaleToFillHeight = CANVAS_HEIGHT / img.height;
+            const scaleToFillWidth = displaySize / img.width;
+            const scaleToFillHeight = displaySize / img.height;
             imageState.scale = Math.max(scaleToFillWidth, scaleToFillHeight);
             imageState.minScale = imageState.scale; // これがズームアウトの限界
 
-            imageState.x = (CANVAS_WIDTH - img.width * imageState.scale) / 2;
-            imageState.y = (CANVAS_HEIGHT - img.height * imageState.scale) / 2;
+            imageState.x = (displaySize - img.width * imageState.scale) / 2;
+            imageState.y = (displaySize - img.height * imageState.scale) / 2;
 
             adjustImagePosition();
         }
@@ -158,20 +186,20 @@
             const scaledWidth = img.width * imageState.scale;
             const scaledHeight = img.height * imageState.scale;
 
-            imageState.x = Math.min(0, Math.max(CANVAS_WIDTH - scaledWidth, imageState.x));
-            imageState.y = Math.min(0, Math.max(CANVAS_HEIGHT - scaledHeight, imageState.y));
+            imageState.x = Math.min(0, Math.max(displaySize - scaledWidth, imageState.x));
+            imageState.y = Math.min(0, Math.max(displaySize - scaledHeight, imageState.y));
         }
 
         function draw() {
-            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.clearRect(0, 0, displaySize, displaySize);
 
             if (!img) {
                 ctx.fillStyle = '#ddd';
-                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                ctx.fillRect(0, 0, displaySize, displaySize);
                 ctx.fillStyle = '#555';
                 ctx.textAlign = 'center';
                 ctx.font = '16px Arial';
-                ctx.fillText('画像を選択してください', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+                ctx.fillText('画像を選択してください', displaySize / 2, displaySize / 2);
                 return;
             }
 
@@ -182,9 +210,9 @@
             ctx.setLineDash([8, 4]);
             ctx.strokeStyle = 'rgba(30, 30, 30, 0.7)';
             ctx.lineWidth = 2;
-            const centerX = CANVAS_WIDTH / 2;
-            const centerY = CANVAS_HEIGHT / 2;
-            const radius = Math.min(CANVAS_WIDTH, CANVAS_HEIGHT) / 2 - ctx.lineWidth * 2;
+            const centerX = displaySize / 2;
+            const centerY = displaySize / 2;
+            const radius = Math.min(displaySize, displaySize) / 2 - ctx.lineWidth * 2;
             ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
             ctx.stroke();
             ctx.setLineDash([]);
@@ -308,16 +336,19 @@
             if (!img) return;
 
             const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = CANVAS_WIDTH;
-            tempCanvas.height = CANVAS_HEIGHT;
+            tempCanvas.width = SAVE_SIZE;
+            tempCanvas.height = SAVE_SIZE;
             const tempCtx = tempCanvas.getContext('2d');
 
-            const sX = -imageState.x / imageState.scale;
-            const sY = -imageState.y / imageState.scale;
-            const sWidth = CANVAS_WIDTH / imageState.scale;
-            const sHeight = CANVAS_HEIGHT / imageState.scale;
+            // 表示サイズから保存サイズへの比率を計算
+            const scale = SAVE_SIZE / displaySize;
+            
+            const sX = -imageState.x * scale / imageState.scale;
+            const sY = -imageState.y * scale / imageState.scale;
+            const sWidth = SAVE_SIZE / imageState.scale * scale;
+            const sHeight = SAVE_SIZE / imageState.scale * scale;
 
-            tempCtx.drawImage(img, sX, sY, sWidth, sHeight, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            tempCtx.drawImage(img, sX, sY, sWidth, sHeight, 0, 0, SAVE_SIZE, SAVE_SIZE);
 
             const filename = 'cropped_image.jpg';
             tempCanvas.toBlob(blob => {
