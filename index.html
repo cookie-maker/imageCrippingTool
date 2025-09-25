@@ -1,63 +1,91 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>画像トリミングツール</title>
-    
-    <!-- Tailwind CSSの読み込み -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Google Fonts (Inter) の読み込み -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
+    <!-- スマホで画面全体がズームされないようにする -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>画像のトリミングを行います</title>
     <style>
-        /* デフォルトのフォントをInterに設定 */
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 20px;
+            background-color: #f0f0f0;
         }
-        /* キャンバスのドラッグ中のカーソル */
-        #canvasContainer.grabbing {
-            cursor: grabbing;
+
+        #canvasContainer {
+            border: 2px solid #333;
+            width: 500px;
+            /* トリミングする正方形のサイズ */
+            height: 500px;
+            /* トリミングする正方形のサイズ */
+            position: relative;
+            margin-bottom: 15px;
+            background-color: #000;
+            cursor: grab;
+            overflow: hidden;
+            /* 画像がコンテナ外にはみ出ても表示しない */
+        }
+
+        #imageCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+        }
+
+        .controls button {
+            margin: 0 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+        }
+
+        .controls button:hover {
+            background-color: #0056b3;
+        }
+
+        .controls button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
         }
     </style>
 </head>
-<body class="bg-slate-100 text-slate-800 flex items-center justify-center min-h-screen p-4">
 
-    <div class="w-full max-w-lg bg-white rounded-2xl shadow-xl p-8 space-y-6">
-        
-        <!-- ヘッダー部分 -->
-        <div class="text-center">
-            <h1 class="text-2xl font-bold text-slate-900">画像トリミングツール</h1>
-            <p class="text-slate-500 mt-2">画像を正方形の円形に切り抜きます。</p>
-        </div>
-
-        <!-- 画像選択と保存ボタン -->
-        <div class="flex flex-col sm:flex-row gap-4">
-            <input type="file" id="imageLoader" accept="image/*" class="hidden">
-            <button id="loadImageButton" class="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200">
-                画像を選択
-            </button>
-            <button id="saveButton" disabled class="w-full bg-slate-300 text-slate-500 font-semibold py-3 px-4 rounded-lg cursor-not-allowed transition-all duration-200 disabled:opacity-70">
-                保存
-            </button>
-        </div>
-
-        <!-- 画像トリミングエリア -->
-        <div id="canvasContainer" class="w-full aspect-square rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 cursor-grab overflow-hidden relative shadow-inner">
-            <canvas id="imageCanvas" class="block w-full h-full"></canvas>
-        </div>
-
-        <!-- 操作説明 -->
-        <div class="text-center text-sm text-slate-500">
-            <p>画像の上でドラッグして位置を調整し、</p>
-            <p>マウスホイールで拡大・縮小できます。</p>
-        </div>
+<body>
+    <div>
+        画像を正方形に切り抜きます
+        [画像を選択]から画像を選んでください。
+    </div>
+    <div class="controls">
+        <input type="file" id="imageLoader" accept="image/*" style="display: none;">
+        <button id="loadImageButton">画像を選択</button>
+        <button id="saveButton" disabled>保存</button>
+    </div>
+    <div id="canvasContainer">
+        <canvas id="imageCanvas"></canvas>
+    </div>
+    <div>
+        マウスの左右で中心点の移動
+        スクロールで拡大・縮小が行えます。
     </div>
 
     <script>
+        // タッチ操作用変数
+        let lastTouch = null;
+        let lastDistance = null;
+
         const imageLoader = document.getElementById('imageLoader');
         const loadImageButton = document.getElementById('loadImageButton');
         const saveButton = document.getElementById('saveButton');
@@ -65,78 +93,63 @@
         const ctx = canvas.getContext('2d');
         const canvasContainer = document.getElementById('canvasContainer');
 
-        // キャンバスの解像度をコンテナの表示サイズから取得
-        const rect = canvasContainer.getBoundingClientRect();
-        const CANVAS_SIZE = rect.width;
-        canvas.width = CANVAS_SIZE;
-        canvas.height = CANVAS_SIZE;
+        const CANVAS_WIDTH = 500;
+        const CANVAS_HEIGHT = 500;
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
 
         let img = null;
         let imageState = {
             x: 0,
             y: 0,
             scale: 1,
-            minScale: 1,
+            minScale: 1, // 画像がCanvasを覆う最小スケール
         };
 
         let isDragging = false;
         let dragStart = { x: 0, y: 0 };
 
-        // --- イベントリスナー ---
-        loadImageButton.addEventListener('click', () => imageLoader.click());
-        imageLoader.addEventListener('change', handleImageLoad);
-        saveButton.addEventListener('click', saveImage);
-        
-        canvasContainer.addEventListener('mousedown', startDrag);
-        canvasContainer.addEventListener('mousemove', dragImage);
-        canvasContainer.addEventListener('mouseup', endDrag);
-        canvasContainer.addEventListener('mouseleave', endDrag);
-        canvasContainer.addEventListener('wheel', zoomImage);
-        
-        // --- 関数定義 ---
+        loadImageButton.addEventListener('click', () => {
+            imageLoader.click();
+        });
 
-        function handleImageLoad(event) {
+        imageLoader.addEventListener('change', (event) => {
             const file = event.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                img = new Image();
-                img.onload = () => {
-                    initializeImageState();
-                    draw();
-                    saveButton.disabled = false;
-                    saveButton.classList.remove('bg-slate-300', 'text-slate-500', 'cursor-not-allowed');
-                    saveButton.classList.add('bg-emerald-500', 'text-white', 'hover:bg-emerald-600');
-                    canvasContainer.style.cursor = 'grab';
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    img = new Image();
+                    img.onload = () => {
+                        initializeImageState();
+                        draw();
+                        saveButton.disabled = false;
+                        canvasContainer.style.cursor = 'grab';
+                    };
+                    img.onerror = () => {
+                        alert('画像の読み込みに失敗しました。');
+                        img = null;
+                        draw(); // エラー時もCanvasを更新
+                        saveButton.disabled = true;
+                        canvasContainer.style.cursor = 'default';
+                    }
+                    img.src = e.target.result;
                 };
-                img.onerror = () => {
-                    alert('画像の読み込みに失敗しました。');
-                    resetToInitialState();
-                };
-                img.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
-            event.target.value = null; // 同じファイルを再選択可能にする
-        }
-        
-        function resetToInitialState() {
-            img = null;
-            draw();
-            saveButton.disabled = true;
-            saveButton.classList.add('bg-slate-300', 'text-slate-500', 'cursor-not-allowed');
-            saveButton.classList.remove('bg-emerald-500', 'text-white', 'hover:bg-emerald-600');
-            canvasContainer.style.cursor = 'default';
-        }
+                reader.readAsDataURL(file);
+            }
+            event.target.value = null; // 同じファイルを連続で選択できるようにする
+        });
 
         function initializeImageState() {
             if (!img) return;
-            const scaleToFillWidth = canvas.width / img.width;
-            const scaleToFillHeight = canvas.height / img.height;
+
+            const scaleToFillWidth = CANVAS_WIDTH / img.width;
+            const scaleToFillHeight = CANVAS_HEIGHT / img.height;
             imageState.scale = Math.max(scaleToFillWidth, scaleToFillHeight);
-            imageState.minScale = imageState.scale;
-            imageState.x = (canvas.width - img.width * imageState.scale) / 2;
-            imageState.y = (canvas.height - img.height * imageState.scale) / 2;
+            imageState.minScale = imageState.scale; // これがズームアウトの限界
+
+            imageState.x = (CANVAS_WIDTH - img.width * imageState.scale) / 2;
+            imageState.y = (CANVAS_HEIGHT - img.height * imageState.scale) / 2;
+
             adjustImagePosition();
         }
 
@@ -144,83 +157,144 @@
             if (!img) return;
             const scaledWidth = img.width * imageState.scale;
             const scaledHeight = img.height * imageState.scale;
-            imageState.x = Math.min(0, Math.max(canvas.width - scaledWidth, imageState.x));
-            imageState.y = Math.min(0, Math.max(canvas.height - scaledHeight, imageState.y));
+
+            imageState.x = Math.min(0, Math.max(CANVAS_WIDTH - scaledWidth, imageState.x));
+            imageState.y = Math.min(0, Math.max(CANVAS_HEIGHT - scaledHeight, imageState.y));
         }
-        
+
         function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
             if (!img) {
-                ctx.fillStyle = '#f1f5f9'; // bg-slate-100
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#64748b'; // text-slate-500
+                ctx.fillStyle = '#ddd';
+                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                ctx.fillStyle = '#555';
                 ctx.textAlign = 'center';
-                ctx.font = '16px "Inter", sans-serif';
-                ctx.fillText('ここに画像が表示されます', canvas.width / 2, canvas.height / 2);
+                ctx.font = '16px Arial';
+                ctx.fillText('画像を選択してください', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
                 return;
             }
 
-            // 画像を描画
             ctx.drawImage(img, imageState.x, imageState.y, img.width * imageState.scale, img.height * imageState.scale);
-            
-            // 円形のオーバーレイを描画
-            ctx.save();
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-            ctx.beginPath();
-            const radius = canvas.width / 2;
-            // 外側の四角形（円の外側を塗りつぶすため）
-            ctx.rect(0, 0, canvas.width, canvas.height);
-            // 内側の円を反時計回りに描画（くり抜く部分）
-            ctx.arc(canvas.width / 2, canvas.height / 2, radius, 0, Math.PI * 2, true);
-            ctx.fill();
-            ctx.restore();
 
-            // 円の境界線を描画
+            // 円の点線を描画
             ctx.beginPath();
             ctx.setLineDash([8, 4]);
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.strokeStyle = 'rgba(30, 30, 30, 0.7)';
             ctx.lineWidth = 2;
-            ctx.arc(canvas.width / 2, canvas.height / 2, radius - 1, 0, 2 * Math.PI);
+            const centerX = CANVAS_WIDTH / 2;
+            const centerY = CANVAS_HEIGHT / 2;
+            const radius = Math.min(CANVAS_WIDTH, CANVAS_HEIGHT) / 2 - ctx.lineWidth * 2;
+            ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
             ctx.stroke();
             ctx.setLineDash([]);
         }
 
-        function startDrag(e) {
+        draw(); // 初期描画
+
+    // マウス操作
+    canvasContainer.addEventListener('mousedown', (e) => {
             if (!img) return;
             isDragging = true;
             dragStart.x = e.clientX - imageState.x;
             dragStart.y = e.clientY - imageState.y;
-            canvasContainer.classList.add('grabbing');
-        }
+            canvasContainer.style.cursor = 'grabbing';
+        });
 
-        function dragImage(e) {
+    canvasContainer.addEventListener('mousemove', (e) => {
             if (!isDragging || !img) return;
+
             imageState.x = e.clientX - dragStart.x;
             imageState.y = e.clientY - dragStart.y;
+
             adjustImagePosition();
             draw();
-        }
-        
+        });
+
         function endDrag() {
-            if (!img || !isDragging) return;
+            if (!img) return;
             isDragging = false;
-            canvasContainer.classList.remove('grabbing');
+            canvasContainer.style.cursor = 'grab';
         }
 
-        function zoomImage(e) {
+        canvasContainer.addEventListener('mouseup', endDrag);
+        canvasContainer.addEventListener('mouseleave', () => {
+            if (isDragging) endDrag();
+        });
+
+        // タッチ操作（スマホ対応）
+        canvasContainer.addEventListener('touchstart', (e) => {
+            if (!img) return;
+            if (e.touches.length === 1) {
+                // 1本指ドラッグ
+                lastTouch = {
+                    x: e.touches[0].clientX - imageState.x,
+                    y: e.touches[0].clientY - imageState.y
+                };
+                isDragging = true;
+            } else if (e.touches.length === 2) {
+                // 2本指ピンチ
+                lastDistance = getTouchDistance(e.touches[0], e.touches[1]);
+            }
+        }, { passive: false });
+
+        canvasContainer.addEventListener('touchmove', (e) => {
+            if (!img) return;
+            if (e.touches.length === 1 && isDragging && lastTouch) {
+                // 1本指ドラッグ
+                imageState.x = e.touches[0].clientX - lastTouch.x;
+                imageState.y = e.touches[0].clientY - lastTouch.y;
+                adjustImagePosition();
+                draw();
+            } else if (e.touches.length === 2 && lastDistance !== null) {
+                // 2本指ピンチズーム
+                const newDistance = getTouchDistance(e.touches[0], e.touches[1]);
+                const rect = canvas.getBoundingClientRect();
+                const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+                const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+                const imageCenterX = (centerX - imageState.x) / imageState.scale;
+                const imageCenterY = (centerY - imageState.y) / imageState.scale;
+                let scaleDelta = newDistance / lastDistance;
+                let newScale = imageState.scale * scaleDelta;
+                newScale = Math.max(imageState.minScale, newScale);
+                newScale = Math.min(newScale, imageState.minScale * 10);
+                imageState.scale = newScale;
+                imageState.x = centerX - imageCenterX * imageState.scale;
+                imageState.y = centerY - imageCenterY * imageState.scale;
+                adjustImagePosition();
+                draw();
+                lastDistance = newDistance;
+            }
+            e.preventDefault();
+        }, { passive: false });
+
+        canvasContainer.addEventListener('touchend', (e) => {
+            isDragging = false;
+            lastTouch = null;
+            lastDistance = null;
+        });
+
+        function getTouchDistance(touch1, touch2) {
+            const dx = touch2.clientX - touch1.clientX;
+            const dy = touch2.clientY - touch1.clientY;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        canvasContainer.addEventListener('wheel', (e) => {
             if (!img) return;
             e.preventDefault();
+
             const delta = e.deltaY > 0 ? 0.90 : 1.10;
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
+
             const imageMouseX = (mouseX - imageState.x) / imageState.scale;
             const imageMouseY = (mouseY - imageState.y) / imageState.scale;
 
             let newScale = imageState.scale * delta;
-            newScale = Math.max(imageState.minScale, newScale);
-            newScale = Math.min(newScale, imageState.minScale * 10);
+            newScale = Math.max(imageState.minScale, newScale); // 最小スケール制限
+            newScale = Math.min(newScale, imageState.minScale * 10); // 最大スケール制限 (初期の10倍まで)
 
             imageState.scale = newScale;
             imageState.x = mouseX - imageMouseX * imageState.scale;
@@ -228,39 +302,52 @@
 
             adjustImagePosition();
             draw();
-        }
+        });
 
-        function saveImage() {
+        saveButton.addEventListener('click', () => {
             if (!img) return;
 
-            const outputSize = 500; // 保存する画像のサイズ
             const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = outputSize;
-            tempCanvas.height = outputSize;
+            tempCanvas.width = CANVAS_WIDTH;
+            tempCanvas.height = CANVAS_HEIGHT;
             const tempCtx = tempCanvas.getContext('2d');
-            
-            // スケーリングを合わせて画像を描画
+
             const sX = -imageState.x / imageState.scale;
             const sY = -imageState.y / imageState.scale;
-            const sWidth = canvas.width / imageState.scale;
-            const sHeight = canvas.height / imageState.scale;
+            const sWidth = CANVAS_WIDTH / imageState.scale;
+            const sHeight = CANVAS_HEIGHT / imageState.scale;
 
-            // 保存用キャンバスに元画像からトリミングして描画
-            tempCtx.drawImage(img, sX, sY, sWidth, sHeight, 0, 0, outputSize, outputSize);
-            
-            // ダウンロードリンクを作成してクリック
-            const dataURL = tempCanvas.toDataURL('image/jpeg');
-            const link = document.createElement('a');
-            link.href = dataURL;
-            link.download = 'cropped_image.jpg';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            tempCtx.drawImage(img, sX, sY, sWidth, sHeight, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-        }
+            const filename = 'cropped_image.jpg';
+            tempCanvas.toBlob(blob => {
+                const file = new File([blob], filename, { type: 'image/jpeg' });
 
-        // 初期描画
-        draw();
+                // iOS判定
+                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+                if (
+                    isIOS &&
+                    navigator.share &&
+                    navigator.canShare &&
+                    navigator.canShare({ files: [file] })
+                ) {
+                    navigator.share({
+                        files: [file],
+                        title: '画像',
+                        text: '作成した画像を共有します。',
+                    });
+                } else {
+                    // fallback: 従来通りダウンロード
+                    const a = document.createElement('a');
+                    a.download = filename;
+                    a.href = URL.createObjectURL(blob);
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                }
+            }, 'image/jpeg', 0.95);
+        });
     </script>
 </body>
+
 </html>
