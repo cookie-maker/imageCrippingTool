@@ -340,15 +340,32 @@
             tempCanvas.height = SAVE_SIZE;
             const tempCtx = tempCanvas.getContext('2d');
 
-            // 表示サイズから保存サイズへの比率を計算
-            const scale = SAVE_SIZE / displaySize;
+            // 表示キャンバス上の中心座標（常に表示サイズの中心）
+            const displayCenterX = displaySize / 2;
+            const displayCenterY = displaySize / 2;
             
-            const sX = -imageState.x * scale / imageState.scale;
-            const sY = -imageState.y * scale / imageState.scale;
-            const sWidth = SAVE_SIZE / imageState.scale * scale;
-            const sHeight = SAVE_SIZE / imageState.scale * scale;
+            // 表示キャンバス上での画像の実際の描画領域
+            const displayImageWidth = img.width * imageState.scale;
+            const displayImageHeight = img.height * imageState.scale;
+            
+            // 表示キャンバス上でのトリミング領域（表示サイズ全体）
+            const cropLeft = 0;
+            const cropTop = 0;
+            const cropWidth = displaySize;
+            const cropHeight = displaySize;
+            
+            // 元画像上でのトリミング領域を計算
+            const sourceX = (cropLeft - imageState.x) / imageState.scale;
+            const sourceY = (cropTop - imageState.y) / imageState.scale;
+            const sourceWidth = cropWidth / imageState.scale;
+            const sourceHeight = cropHeight / imageState.scale;
 
-            tempCtx.drawImage(img, sX, sY, sWidth, sHeight, 0, 0, SAVE_SIZE, SAVE_SIZE);
+            // 元画像から500x500で保存
+            tempCtx.drawImage(
+                img,
+                sourceX, sourceY, sourceWidth, sourceHeight,
+                0, 0, SAVE_SIZE, SAVE_SIZE
+            );
 
             const filename = 'cropped_image.jpg';
             tempCanvas.toBlob(blob => {
